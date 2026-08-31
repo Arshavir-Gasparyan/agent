@@ -29,6 +29,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # Required by claude-code-action: it exchanges a GitHub OIDC token
+      # rather than sending your credential straight to the API.
+      id-token: write
     steps:
       - name: Resolve issue fields
         id: issue
