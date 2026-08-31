@@ -39,6 +39,7 @@ function timingSafeEqual(a: string, b: string) {
 }
 
 type LinearLabel = { id: string; name: string };
+type TriggerCheck = { ok: boolean; reason: string };
 type LinearState = { id: string; name: string; type: string };
 
 type LinearIssueEvent = {
@@ -54,6 +55,7 @@ type LinearIssueEvent = {
     branchName?: string;
     priorityLabel?: string;
     labels?: LinearLabel[];
+    labelIds?: string[];
     state?: LinearState;
   };
   updatedFrom?: Record<string, unknown>;
@@ -63,20 +65,59 @@ type LinearIssueEvent = {
  * Fire only on the transition into the trigger state, not on every later edit
  * to an issue that already sits there — otherwise renaming a ticket or leaving
  * a comment would queue another agent run.
+ *
+ * Returns a reason on every path so the Vercel logs explain a declined
+ * delivery instead of silently doing nothing.
  */
-function shouldTrigger(event: LinearIssueEvent, label: string, state: string) {
-  if (event.type !== "Issue") return false;
-  if (event.action !== "create" && event.action !== "update") return false;
+function shouldTrigger(
+  event: LinearIssueEvent,
+  label: string,
+  state: string,
+): TriggerCheck {
+  if (event.type !== "Issue") {
+    return { ok: false, reason: `type is "${event.type}", not "Issue"` };
+  }
+  if (event.action !== "create" && event.action !== "update") {
+    return { ok: false, reason: `action is "${event.action}"` };
+  }
 
   const data = event.data;
-  if (!data) return false;
-  if (!data.labels?.some((l) => l.name.toLowerCase() === label.toLowerCase())) return false;
-  if (data.state?.name.toLowerCase() !== state.toLowerCase()) return false;
+  if (!data) return { ok: false, reason: "payload had no data object" };
 
-  if (event.action === "create") return true;
+  const labelNames = data.labels?.map((l) => l.name) ?? [];
+  if (!data.labels) {
+    return {
+      ok: false,
+      reason:
+        "payload has no `labels` array (saw labelIds: " +
+        `${JSON.stringify(data.labelIds ?? null)}) — cannot match by name`,
+    };
+  }
+  if (!labelNames.some((n) => n.toLowerCase() === label.toLowerCase())) {
+    return {
+      ok: false,
+      reason: `labels ${JSON.stringify(labelNames)} do not include "${label}"`,
+    };
+  }
 
-  const changed = event.updatedFrom ?? {};
-  return "stateId" in changed || "labelIds" in changed;
+  const stateName = data.state?.name;
+  if (stateName?.toLowerCase() !== state.toLowerCase()) {
+    return {
+      ok: false,
+      reason: `state "${stateName}" is not "${state}"`,
+    };
+  }
+
+  if (event.action === "create") return { ok: true, reason: "issue created in trigger state" };
+
+  const changed = Object.keys(event.updatedFrom ?? {});
+  if (changed.includes("stateId") || changed.includes("labelIds")) {
+    return { ok: true, reason: `changed fields: ${JSON.stringify(changed)}` };
+  }
+  return {
+    ok: false,
+    reason: `already in trigger state; changed fields ${JSON.stringify(changed)} are not state/label`,
+  };
 }
 
 function requireEnv(name: string) {
@@ -121,9 +162,15 @@ export default async function handler(req: Request): Promise<Response> {
   const triggerLabel = process.env.LINEAR_TRIGGER_LABEL ?? "ai-agent";
   const triggerState = process.env.LINEAR_TRIGGER_STATE ?? "In Progress";
 
-  if (!shouldTrigger(event, triggerLabel, triggerState)) {
+  const check = shouldTrigger(event, triggerLabel, triggerState);
+  console.log(
+    `[linear] ${event.type}/${event.action} ${event.data?.identifier ?? "?"} ` +
+      `-> ${check.ok ? "DISPATCH" : "SKIP"}: ${check.reason}`,
+  );
+
+  if (!check.ok) {
     // 200 so Linear does not retry an event we deliberately ignored.
-    return new Response(JSON.stringify({ dispatched: false }), {
+    return new Response(JSON.stringify({ dispatched: false, reason: check.reason }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
