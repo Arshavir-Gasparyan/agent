@@ -17,6 +17,10 @@
   }
 }
 
+.hero-heading {
+  color: red;
+}
+
 .hero {
   position: relative;
 
