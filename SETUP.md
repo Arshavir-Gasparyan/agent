@@ -41,8 +41,12 @@ Without this, auto-merge merges instantly and the CI gate does nothing.
 
 | Secret | What |
 |---|---|
-| `ANTHROPIC_API_KEY` | From console.anthropic.com |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Run `claude setup-token` locally and paste the output. Bills against your Claude subscription rather than API credits. |
 | `AGENT_PAT` | Fine-grained PAT, this repo, **Contents: RW**, **Pull requests: RW** |
+
+To switch to a pay-as-you-go API key instead, swap the workflow's
+`claude_code_oauth_token` input for `anthropic_api_key` and store the key as
+`ANTHROPIC_API_KEY`. The action accepts either.
 
 `AGENT_PAT` is not optional. A PR opened with the default `GITHUB_TOKEN` does
 not trigger `ci.yml`, so the required check never reports and auto-merge waits
@@ -104,6 +108,7 @@ back in does.
 | Dispatch 404 | `GITHUB_DISPATCH_TOKEN` lacks Contents: RW, or `GITHUB_REPO` is wrong |
 | PR opens but never merges | `AGENT_PAT` missing, auto-merge disabled, or no required check set |
 | "No changes produced" | Claude judged the issue too ambiguous — the description needs more detail |
+| Agent step fails on auth | `CLAUDE_CODE_OAUTH_TOKEN` expired — rerun `claude setup-token` and update the secret |
 
 ## Scope note
 
