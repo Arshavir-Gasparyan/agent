@@ -159,8 +159,10 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response("Stale delivery", { status: 400 });
   }
 
-  const triggerLabel = process.env.LINEAR_TRIGGER_LABEL ?? "ai-agent";
-  const triggerState = process.env.LINEAR_TRIGGER_STATE ?? "In Progress";
+  // `||` not `??`: an env var present-but-blank must fall back to the default,
+  // otherwise the comparison silently matches nothing.
+  const triggerLabel = process.env.LINEAR_TRIGGER_LABEL?.trim() || "ai-agent";
+  const triggerState = process.env.LINEAR_TRIGGER_STATE?.trim() || "In Progress";
 
   const check = shouldTrigger(event, triggerLabel, triggerState);
   console.log(
